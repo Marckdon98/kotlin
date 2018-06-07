@@ -215,6 +215,8 @@ The Kotlin plugin provides language support in IntelliJ IDEA and Android Studio.
 
       <add-to-group group-id="GenerateGroup" anchor="first"/>
     </group>
+
+    <action id = "GotoImplementation" class="org.jetbrains.kotlin.idea.codeInsight.KotlinGotoImplementationAction"/>
   </actions>
 
   <extensions defaultExtensionNs="com.intellij">
