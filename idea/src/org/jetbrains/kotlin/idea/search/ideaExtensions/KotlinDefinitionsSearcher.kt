@@ -16,7 +16,6 @@
 
 package org.jetbrains.kotlin.idea.search.ideaExtensions
 
-import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.search.GlobalSearchScope
@@ -45,34 +44,35 @@ import java.util.*
 
 class KotlinDefinitionsSearcher : QueryExecutor<PsiElement, DefinitionsScopedSearch.SearchParameters> {
     override fun execute(queryParameters: DefinitionsScopedSearch.SearchParameters, consumer: ExecutorProcessor<PsiElement>): Boolean {
-        val consumer = skipDelegatedMethodsConsumer(consumer)
+        val skipConsumer = skipDelegatedMethodsConsumer(consumer)
         val element = queryParameters.element
         val scope = queryParameters.scope
 
         return when (element) {
             is KtClass -> {
-                processClassImplementations(element, consumer) && processActualDeclarations(element, consumer)
+                processClassImplementations(element, skipConsumer) && processActualDeclarations(element, skipConsumer)
             }
 
             is KtLightClass -> {
                 val useScope = runReadAction { element.useScope }
                 if (useScope is LocalSearchScope)
-                    processLightClassLocalImplementations(element, useScope, consumer)
+                    processLightClassLocalImplementations(element, useScope, skipConsumer)
                 else
                     true
             }
 
             is KtNamedFunction, is KtSecondaryConstructor -> {
-                processFunctionImplementations(element as KtFunction, scope, consumer) && processActualDeclarations(element, consumer)
+                processFunctionImplementations(element as KtFunction, scope, skipConsumer) &&
+                        processActualDeclarations(element, skipConsumer)
             }
 
             is KtProperty -> {
-                processPropertyImplementations(element, scope, consumer) && processActualDeclarations(element, consumer)
+                processPropertyImplementations(element, scope, skipConsumer) && processActualDeclarations(element, skipConsumer)
             }
 
             is KtParameter -> {
                 if (isFieldParameter(element)) {
-                    processPropertyImplementations(element, scope, consumer) && processActualDeclarations(element, consumer)
+                    processPropertyImplementations(element, scope, skipConsumer) && processActualDeclarations(element, skipConsumer)
                 } else {
                     true
                 }
@@ -110,21 +110,22 @@ class KotlinDefinitionsSearcher : QueryExecutor<PsiElement, DefinitionsScopedSea
             return ContainerUtil.process(ClassInheritorsSearch.search(psiClass, true), consumer)
         }
 
-        private fun processLightClassLocalImplementations(psiClass: KtLightClass,
-                                                          searchScope: LocalSearchScope,
-                                                          consumer: Processor<PsiElement>): Boolean {
+        private fun processLightClassLocalImplementations(
+            psiClass: KtLightClass,
+            searchScope: LocalSearchScope,
+            consumer: Processor<PsiElement>
+        ): Boolean {
             // workaround for IDEA optimization that uses Java PSI traversal to locate inheritors in local search scope
             val virtualFiles = searchScope.scope.mapTo(HashSet()) { it.containingFile.virtualFile }
             val globalScope = GlobalSearchScope.filesScope(psiClass.project, virtualFiles)
-            return ContainerUtil.process(ClassInheritorsSearch.search(psiClass, globalScope, true), Processor<PsiClass> { candidate ->
+            return ContainerUtil.process(ClassInheritorsSearch.search(psiClass, globalScope, true)) { candidate ->
                 val candidateOrigin = candidate.unwrapped ?: candidate
                 if (candidateOrigin in searchScope) {
                     consumer.process(candidate)
-                }
-                else {
+                } else {
                     true
                 }
-            })
+            }
         }
 
         private fun processFunctionImplementations(function: KtFunction, scope: SearchScope, consumer: Processor<PsiElement>): Boolean {
@@ -133,7 +134,11 @@ class KotlinDefinitionsSearcher : QueryExecutor<PsiElement, DefinitionsScopedSea
             }
         }
 
-        private fun processPropertyImplementations(declaration: KtNamedDeclaration, scope: SearchScope, consumer: Processor<PsiElement>): Boolean {
+        private fun processPropertyImplementations(
+            declaration: KtNamedDeclaration,
+            scope: SearchScope,
+            consumer: Processor<PsiElement>
+        ): Boolean {
             return runReadAction {
                 processPropertyImplementationsMethods(declaration.toPossiblyFakeLightMethods(), scope, consumer)
             }
@@ -146,7 +151,11 @@ class KotlinDefinitionsSearcher : QueryExecutor<PsiElement, DefinitionsScopedSea
             }
         }
 
-        fun processPropertyImplementationsMethods(accessors: Iterable<PsiMethod>, scope: SearchScope, consumer: Processor<PsiElement>): Boolean {
+        fun processPropertyImplementationsMethods(
+            accessors: Iterable<PsiMethod>,
+            scope: SearchScope,
+            consumer: Processor<PsiElement>
+        ): Boolean {
             return accessors.all { method ->
                 method.forEachOverridingMethod(scope) { implementation ->
                     if (isDelegated(implementation)) return@forEachOverridingMethod true
